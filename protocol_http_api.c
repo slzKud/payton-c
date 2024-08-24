@@ -79,7 +79,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			pss->resp_code=500;
 			sprintf(pss->mimeType,"%s","application/json");
 		}
-		if(pss->enableParse==1){
+		if(pss->enableParse==1 && pss->paramType==GET_PARAM){
 			pss->resp_code=200;
 			sprintf(pss->mimeType,"%s",mimeList[1]);
 			pss->ret=doCallback(wsi,pss,pss->className,pss->subClassName,pss->paramType,&pss->resp,&pss->resp_code);
@@ -171,6 +171,17 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		lwsl_user("LWS_CALLBACK_HTTP_BODY_COMPLETION\n");
 		lws_spa_finalize(pss->spa);
+		if(pss->enableParse==1 && pss->paramType==POST_PARAM){
+			pss->resp_code=200;
+			sprintf(pss->mimeType,"%s",mimeList[1]);
+			pss->ret=doCallback(wsi,pss,pss->className,pss->subClassName,pss->paramType,&pss->resp,&pss->resp_code);
+			lwsl_user("callback:%d",pss->ret);
+			if(pss->ret==CALLBACK_NO_MATCH){
+				pss->resp_code=404;
+			}else{
+				getMimeType(pss->className,pss->subClassName,pss->mimeType);
+			}
+		}
 		lwsl_user("pss->resp_code:%d,pss->mime:%s",pss->resp_code,pss->mimeType);
 		if (lws_add_http_common_headers(wsi, pss->resp_code,
                         pss->mimeType,
