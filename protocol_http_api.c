@@ -29,16 +29,26 @@ struct pss {
 	int enableParse;
     int content_lines;
 	enum HTTP_PARAM_TYPES paramType;
+	char *resp;
+	int resp_code;
+	int ret;
+	char *mimeType[MAX_PAR_LEN];
 	struct lws_spa *spa;
 };
-
-int testPrg1(char** argv,int argc,char** resp);
-int doCallback(struct lws *wsi,void *pss,const char* className,const char* subClassName,enum HTTP_PARAM_TYPES paramType,char **resp);
+const char mimeList[][MAX_PAR_LEN]={"text/plain","application/json","application/octet-stream"};
+int testPrg1(char** argv,int argc,char** resp,int* resp_code);
+int configJson(char** argv,int argc,char** resp,int* resp_code);
+int gen_code_200(char** argv,int argc,char** resp,int* resp_code);
+int gen_code_500(char** argv,int argc,char** resp,int* resp_code);
+int doCallback(struct lws *wsi,void *pss,const char* className,const char* subClassName,enum HTTP_PARAM_TYPES paramType,char **resp,int* resp_code);
 int getGEToPOST(const char* className,const char* subClassName);
 int getCallbackID(const char* className,const char* subClassName);
+int getMimeType(const char* className,const char* subClassName,char* mimeType);
 httpCallback_t callBacks[]={
-    {"Hello","World",{"name"},1,testPrg1,GET_PARAM},
-	{"Hello","Post",{"name"},1,testPrg1,POST_PARAM},
+    {"Hello","World",{"name"},1,testPrg1,GET_PARAM,MIME_PLAIN_TEXT,NULL},
+	{"Hello","Post",{"name"},1,testPrg1,POST_PARAM,MIME_PLAIN_TEXT,NULL},
+	{"Hello","HTTP_CODE_200",{},0,gen_code_200,GET_PARAM,MIME_PLAIN_TEXT,NULL},
+	{"Hello","HTTP_CODE_500",{},0,gen_code_500,GET_PARAM,MIME_PLAIN_TEXT,NULL},
 };
 static int
 callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
@@ -66,15 +76,30 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		}else{
 			pss->enableParse=2;
 			pss->paramType=GET_PARAM;
+			pss->resp_code=500;
+			sprintf(pss->mimeType,"%s","application/json");
+		}
+		if(pss->enableParse==1){
+			pss->resp_code=200;
+			sprintf(pss->mimeType,"%s",mimeList[1]);
+			pss->ret=doCallback(wsi,pss,pss->className,pss->subClassName,pss->paramType,&pss->resp,&pss->resp_code);
+			lwsl_user("callback:%d",ret);
+			if(pss->ret==CALLBACK_NO_MATCH){
+				pss->resp_code=404;
+			}else{
+				getMimeType(pss->className,pss->subClassName,pss->mimeType);
+			}
 		}
 		if(pss->paramType==GET_PARAM){
-			if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
-                        "text/html",
-                        LWS_ILLEGAL_HTTP_CONTENT_LEN, /* no content len */
-                        &p, end))
-                return 1;
+			lwsl_user("pss->resp_code:%d,pss->mime:%s",pss->resp_code,pss->mimeType);
+			if (lws_add_http_common_headers(wsi, pss->resp_code,
+                        	pss->mimeType,
+                        	LWS_ILLEGAL_HTTP_CONTENT_LEN,
+                        	&p, end))
+                	return 1;
             if (lws_finalize_write_http_header(wsi, start, &p, end))
                 return 1;
+
 			/* write the body separately */
             lws_callback_on_writable(wsi);
 			return 0;
@@ -88,21 +113,19 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
                 break;
 			
 			if(pss->enableParse==1){
-				char *resp=NULL;
-				int ret;
-				ret=doCallback(wsi,pss,pss->className,pss->subClassName,pss->paramType,&resp);
-				p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "<p>Current : %s/%s</p>",pss->className,pss->subClassName);
-				if(ret==CALLBACK_NO_MATCH){
+				if(pss->ret==CALLBACK_NO_MATCH){
 					lwsl_user("callback not match");
-					p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "<p>Not Match : %s/%s</p>",pss->className,pss->subClassName);
+					p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "{\"code\":-999,\"info\":\"api dont match.\"}");
 				}else{
-					p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "<p>CallBack : %d</p>",ret);
-					if(resp!=NULL)
-						p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "<p>resp : %s</p>",resp);
+					if(pss->resp!=NULL)
+						p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "%s",pss->resp);
+					else
+						p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "{\"code\":0,\"info\":\"this api dont have resp.\"}");
 				}
-				free(resp);
+				//free(resp);
 			}else{
-				p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "<p>URL parse error.</p>");
+				p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "{\"code\":-999,\"info\":\"URL parse error.\"}");
+				//p += lws_snprintf((char *)p, lws_ptr_diff_size_t(end, p), "<p>URL parse error.</p>");
 			}
             if (lws_write(wsi, (uint8_t *)start, lws_ptr_diff_size_t(p, start), (enum lws_write_protocol)n) !=
                     lws_ptr_diff(p, start))
@@ -148,8 +171,9 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
 		lwsl_user("LWS_CALLBACK_HTTP_BODY_COMPLETION\n");
 		lws_spa_finalize(pss->spa);
-		if (lws_add_http_common_headers(wsi, HTTP_STATUS_OK,
-                        "text/html",
+		lwsl_user("pss->resp_code:%d,pss->mime:%s",pss->resp_code,pss->mimeType);
+		if (lws_add_http_common_headers(wsi, pss->resp_code,
+                        pss->mimeType,
                         LWS_ILLEGAL_HTTP_CONTENT_LEN, /* no content len */
                         &p, end))
             return 1;
@@ -181,6 +205,22 @@ int getGEToPOST(const char* className,const char* subClassName){
 	}
 	return GET_PARAM;
 }
+int getMimeType(const char* className,const char* subClassName,char* mimeType){
+	size_t i;
+	for (i = 0; i < sizeof(callBacks) / sizeof(callBacks[0]); i++) {
+		if (strcmp(callBacks[i].className, className)==0 && strcmp(callBacks[i].subClassName, subClassName)==0) {
+			if(callBacks[i].mimeType==MIME_CUSTOM){
+				sprintf(mimeType,"%s",callBacks[i].customMimeType);
+				return 0;
+			}else{
+				sprintf(mimeType,"%s",mimeList[callBacks[i].mimeType]);
+				return 0;
+			}
+		}
+	}
+	sprintf(*mimeType,"%s","text/plain");
+	return -1;
+}
 int getCallbackID(const char* className,const char* subClassName){
 	size_t i;
 	for (i = 0; i < sizeof(callBacks) / sizeof(callBacks[0]); i++) {
@@ -190,7 +230,7 @@ int getCallbackID(const char* className,const char* subClassName){
 	}
 	return -1;
 }
-int doCallback(struct lws *wsi,void *pss,const char* className,const char* subClassName,enum HTTP_PARAM_TYPES paramType,char **resp){
+int doCallback(struct lws *wsi,void *pss,const char* className,const char* subClassName,enum HTTP_PARAM_TYPES paramType,char **resp,int *resp_code){
     size_t i,j,valueCount=0;
     char **valueArray=(char **) malloc(MAX_PAR_COUNT * sizeof(char *));
     char buf[255];
@@ -201,7 +241,7 @@ int doCallback(struct lws *wsi,void *pss,const char* className,const char* subCl
             lwsl_user("Find : %s/%s\n",callBacks[i].className,callBacks[i].subClassName);
             if(callBacks[i].valueCount==0){
                 free(valueArray);
-                return callBacks[i].fn(NULL,0,resp);
+                return callBacks[i].fn(NULL,0,resp,resp_code);
             }
             valueCount=callBacks[i].valueCount>MAX_PAR_COUNT?MAX_PAR_COUNT:callBacks[i].valueCount;
             lwsl_user("Value : %d,%d\n",sizeof(callBacks[i].valueName),sizeof(callBacks[i].valueName[0]));
@@ -221,7 +261,7 @@ int doCallback(struct lws *wsi,void *pss,const char* className,const char* subCl
 				}
 				strncpy(valueArray[j],buf,MAX_PAR_LEN);
             }
-            ret=callBacks[i].fn(valueArray,valueCount,resp);
+            ret=callBacks[i].fn(valueArray,valueCount,resp,resp_code);
         }
     }
     for (i = 0; i < valueCount; i++) 
@@ -231,10 +271,26 @@ int doCallback(struct lws *wsi,void *pss,const char* className,const char* subCl
     free(valueArray);
     return ret;
 }
-int testPrg1(char** argv,int argc,char** resp){
+int testPrg1(char** argv,int argc,char** resp,int* resp_code){
 	char *buf;
     buf=(char *)malloc(100 * sizeof(char));
     sprintf(buf,"From testprg1,Hello,World !name=%s",argv[0]);
     *resp=buf;
+    return 0;
+}
+int gen_code_200(char** argv,int argc,char** resp,int* resp_code){
+	char *buf;
+    buf=(char *)malloc(100 * sizeof(char));
+    sprintf(buf,"200 OK from rkkvmd");
+    *resp=buf;
+	*resp_code=200;
+    return 0;
+}
+int gen_code_500(char** argv,int argc,char** resp,int* resp_code){
+	char *buf;
+    buf=(char *)malloc(100 * sizeof(char));
+    sprintf(buf,"500 Interval Error from rkkvmd");
+    *resp=buf;
+	*resp_code=500;
     return 0;
 }

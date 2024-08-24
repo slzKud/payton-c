@@ -1,5 +1,6 @@
+#ifndef __PARSEHTTP__
 #define MAX_PAR_COUNT 10
-#define MAX_PAR_LEN 16
+#define MAX_PAR_LEN 32
 #define MAX_COMMAND_LEN 255
 #define URL_NOT_MATCH 1
 #define URL_MATCH_OK 0
@@ -9,8 +10,15 @@
 enum HTTP_PARAM_TYPES {
     GET_PARAM,
     POST_PARAM,
+    OPTIONS_PARAM,
 };
-typedef int (*httpCallback)(char** argv,int argc,char** resp);
+enum MIME_TYPES {
+    MIME_PLAIN_TEXT,
+    MIME_JSON,
+    MIME_STREAM,
+    MIME_CUSTOM = 255
+};
+typedef int (*httpCallback)(char** argv,int argc,char** resp,int* resp_code);
 typedef struct {
     const char *className;
     const char *subClassName;
@@ -18,5 +26,8 @@ typedef struct {
     int valueCount;
     httpCallback fn;
     enum HTTP_PARAM_TYPES paramType;
+    enum MIME_TYPES mimeType;
+    const char *customMimeType;
 }httpCallback_t;
 int url_parse(char* url,char* className,int* classNameLen,char* subClassName,int* subClassNameLen);
+#endif
