@@ -83,7 +83,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			pss->resp_code=200;
 			sprintf(pss->mimeType,"%s",mimeList[1]);
 			pss->ret=doCallback(wsi,pss,pss->className,pss->subClassName,pss->paramType,&pss->resp,&pss->resp_code);
-			lwsl_user("callback:%d",ret);
+			lwsl_user("callback:%d",pss->ret);
 			if(pss->ret==CALLBACK_NO_MATCH){
 				pss->resp_code=404;
 			}else{
