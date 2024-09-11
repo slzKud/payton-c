@@ -148,7 +148,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		}
 		if (!pss->spa) {
 			pss->spa = lws_spa_create(wsi, (const char * const *)param,
-					LWS_ARRAY_SIZE(param), 1024,
+					valueCount, 1024,
 					NULL, NULL); /* no file upload */
 			if (!pss->spa)
 				return -1;
