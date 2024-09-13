@@ -273,6 +273,7 @@ int doCallback(struct lws *wsi,void *pss,const char* className,const char* subCl
 				strncpy(valueArray[j],buf,MAX_PAR_LEN);
             }
             ret=callBacks[i].fn(valueArray,valueCount,resp,resp_code);
+			break;
         }
     }
     for (i = 0; i < valueCount; i++) 
