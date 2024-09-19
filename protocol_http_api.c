@@ -65,7 +65,30 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		lwsl_user("LWS_CALLBACK_HTTP");
     	lws_snprintf(pss->path, sizeof(pss->path), "%s",
                         (const char *)in);
-
+		enum lws_token_indexes i1 = WSI_TOKEN_OPTIONS_URI;
+		int header_len = lws_hdr_total_length(wsi, i1);
+		if(header_len>0){
+			char *test_header_buf;
+			test_header_buf=malloc(sizeof(char)*(header_len + 4));
+			lws_hdr_copy(wsi, test_header_buf, header_len+4, i1);
+			lwsl_user("Get WSI_TOKEN_OPTIONS_URI->%s",test_header_buf);
+			pss->enableParse==999;
+			
+			if (lws_add_http_common_headers(wsi, 204,
+                        	"text/plain",
+                        	LWS_ILLEGAL_HTTP_CONTENT_LEN,
+                        	&p, end))
+                	return 1;
+			//
+			lws_add_http_header_by_name(wsi,"Access-Control-Allow-Origin:","*",1,&p,end);
+			lws_add_http_header_by_name(wsi,"Access-Control-Allow-Headers:","Content-Type, Access-Control-Allow-Origin, Access-Control-Allow-Headers, X-Requested-By, Access-Control-Allow-Methods,OAMAuth",125,&p,end);
+			lws_add_http_header_by_name(wsi,"Access-Control-Allow-Methods:","POST, GET, PUT, DELETE",22,&p,end);
+            if (lws_finalize_write_http_header(wsi, start, &p, end))
+                return 1;
+			/* write the body separately */
+            lws_callback_on_writable(wsi);
+			return 0;
+		}
         lws_get_peer_simple(wsi, (char *)buf, sizeof(buf));
         lwsl_notice("%s: HTTP: connection %s, path %s\n", __func__,
                         (const char *)buf, pss->path);
@@ -97,6 +120,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
                         	LWS_ILLEGAL_HTTP_CONTENT_LEN,
                         	&p, end))
                 	return 1;
+			lws_add_http_header_by_name(wsi,"Access-Control-Allow-Origin:","*",1,&p,end);
             if (lws_finalize_write_http_header(wsi, start, &p, end))
                 return 1;
 
@@ -188,6 +212,7 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
                         LWS_ILLEGAL_HTTP_CONTENT_LEN, /* no content len */
                         &p, end))
             return 1;
+		lws_add_http_header_by_name(wsi,"Access-Control-Allow-Origin:","*",1,&p,end);
         if (lws_finalize_write_http_header(wsi, start, &p, end))
             return 1;
 		lws_callback_on_writable(wsi);
