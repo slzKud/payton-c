@@ -268,7 +268,7 @@ int doCallback(struct lws *wsi,void *pss,const char* className,const char* subCl
     int ret=CALLBACK_NO_MATCH;
     lwsl_user("className:%s/subClassName:%s\n",className,subClassName);
     for (i = 0; i < sizeof(callBacks) / sizeof(callBacks[0]); i++) {
-        if (strcmp(callBacks[i].className, className)==0 && strcmp(callBacks[i].subClassName, subClassName)==0) {
+        if (strcmp(callBacks[i].className, className)==0 && strcmp(callBacks[i].subClassName, subClassName)==0 && callBacks[i].paramType==paramType) {
             lwsl_user("Find : %s/%s\n",callBacks[i].className,callBacks[i].subClassName);
             if(callBacks[i].valueCount==0){
                 free(valueArray);
