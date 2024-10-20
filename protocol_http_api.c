@@ -41,7 +41,6 @@ int configJson(char** argv,int argc,char** resp,int* resp_code);
 int gen_code_200(char** argv,int argc,char** resp,int* resp_code);
 int gen_code_500(char** argv,int argc,char** resp,int* resp_code);
 int doCallback(struct lws *wsi,void *pss,const char* className,const char* subClassName,enum HTTP_PARAM_TYPES paramType,char **resp,int* resp_code);
-int getGEToPOST(const char* className,const char* subClassName);
 int getCallbackID(const char* className,const char* subClassName);
 int getMimeType(const char* className,const char* subClassName,char* mimeType);
 httpCallback_t callBacks[]={
@@ -65,6 +64,12 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		lwsl_user("LWS_CALLBACK_HTTP");
     	lws_snprintf(pss->path, sizeof(pss->path), "%s",
                         (const char *)in);
+		if(lws_hdr_total_length(wsi, WSI_TOKEN_GET_URI)>0)
+			pss->paramType=GET_PARAM;
+		if(lws_hdr_total_length(wsi, WSI_TOKEN_POST_URI)>0)
+			pss->paramType=POST_PARAM;
+		if(lws_hdr_total_length(wsi, WSI_TOKEN_OPTIONS_URI)>0)
+			pss->paramType=OPTIONS_PARAM;
 		enum lws_token_indexes i1 = WSI_TOKEN_OPTIONS_URI;
 		int header_len = lws_hdr_total_length(wsi, i1);
 		if(header_len>0){
@@ -95,7 +100,6 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 		if(url_parse(pss->path,pss->className,&pss->classNameLen,pss->subClassName,&pss->subClassNameLen)==URL_MATCH_OK){
 			lwsl_user("Parse MATCH:%s/%s",pss->className,pss->subClassName);
 			pss->enableParse=1;
-			pss->paramType=getGEToPOST(pss->className,pss->subClassName);
 		}else{
 			pss->enableParse=2;
 			pss->paramType=GET_PARAM;
@@ -231,15 +235,6 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	}
 
 	return lws_callback_http_dummy(wsi, reason, user, in, len);
-}
-int getGEToPOST(const char* className,const char* subClassName){
-	size_t i;
-	for (i = 0; i < sizeof(callBacks) / sizeof(callBacks[0]); i++) {
-		if (strcmp(callBacks[i].className, className)==0 && strcmp(callBacks[i].subClassName, subClassName)==0) {
-			return callBacks[i].paramType;
-		}
-	}
-	return GET_PARAM;
 }
 int getMimeType(const char* className,const char* subClassName,char* mimeType){
 	size_t i;
