@@ -33,6 +33,9 @@ struct pss {
 	int resp_code;
 	int ret;
 	char *mimeType[MAX_PAR_LEN];
+	char filename[128];		/* the filename of the uploaded file */
+	unsigned long long file_length; /* the amount of bytes uploaded */
+	int fd;				/* fd on file being saved */
 	struct lws_spa *spa;
 };
 const char mimeList[][MAX_PAR_LEN]={"text/plain","application/json","application/octet-stream"};
@@ -40,15 +43,80 @@ int testPrg1(char** argv,int argc,char** resp,int* resp_code);
 int configJson(char** argv,int argc,char** resp,int* resp_code);
 int gen_code_200(char** argv,int argc,char** resp,int* resp_code);
 int gen_code_500(char** argv,int argc,char** resp,int* resp_code);
+int uploadFileSuccess(char** argv,int argc,char** resp,int* resp_code);
 int doCallback(struct lws *wsi,void *pss,const char* className,const char* subClassName,enum HTTP_PARAM_TYPES paramType,char **resp,int* resp_code);
 int getCallbackID(const char* className,const char* subClassName);
 int getMimeType(const char* className,const char* subClassName,char* mimeType);
 httpCallback_t callBacks[]={
     {"Hello","World",{"name"},1,testPrg1,GET_PARAM,MIME_PLAIN_TEXT,NULL},
 	{"Hello","Post",{"name"},1,testPrg1,POST_PARAM,MIME_PLAIN_TEXT,NULL},
+	{"Upload","UploadFile",{"!UploadFilePath!","!UploadFileLength!"},2,uploadFileSuccess,POST_PARAM,MIME_PLAIN_TEXT,NULL},
 	{"Hello","HTTP_CODE_200",{},0,gen_code_200,GET_PARAM,MIME_PLAIN_TEXT,NULL},
 	{"Hello","HTTP_CODE_500",{},0,gen_code_500,GET_PARAM,MIME_PLAIN_TEXT,NULL},
 };
+int genTempFile(char *filePath){
+	char *tmpFile=NULL;
+	int fd;
+	tmpFile=malloc(sizeof(char)*64);
+	sprintf(tmpFile,"/tmp/tmp_XXXXXX");
+	if ((fd = mkstemp(tmpFile)) < 0)
+		return NULL;
+	sprintf(filePath,"%s",tmpFile);
+	free(tmpFile);
+	return fd;
+}
+static int
+file_upload_cb(void *data, const char *name, const char *filename,
+	       char *buf, int len, enum lws_spa_fileupload_states state)
+{
+	struct pss *pss = (struct pss *)data;
+
+	switch (state) {
+	case LWS_UFS_OPEN:
+		/* take a copy of the provided filename */
+		//lws_strncpy(pss->filename, filename, sizeof(pss->filename) - 1);
+		/* remove any scary things like .. */
+		//lws_filename_purify_inplace(pss->filename);
+		/* open a file of that name for write in the cwd */
+		//pss->fd = lws_open(pss->filename, O_CREAT | O_TRUNC | O_RDWR, 0600);
+		pss->fd=genTempFile(pss->filename);
+		if (pss->fd == -1) {
+			lwsl_notice("Failed to open output file %s\n",
+				    pss->filename);
+			return 1;
+		}
+		break;
+	case LWS_UFS_FINAL_CONTENT:
+	case LWS_UFS_CONTENT:
+		if (len) {
+			int n;
+
+			pss->file_length += (unsigned int)len;
+
+			n = (int)write(pss->fd, buf, (unsigned int)len);
+			if (n < len) {
+				lwsl_notice("Problem writing file %d\n", errno);
+			}
+		}
+		if (state == LWS_UFS_CONTENT)
+			/* wasn't the last part of the file */
+			break;
+
+		/* the file upload is completed */
+
+		lwsl_user("%s: upload done, written %lld to %s\n", __func__,
+			  pss->file_length, pss->filename);
+
+		close(pss->fd);
+		pss->fd = -1;
+		break;
+	case LWS_UFS_CLOSE:
+		break;
+	}
+
+	return 0;
+}
+
 static int
 callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 	      void *in, size_t len)
@@ -175,9 +243,15 @@ callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 			strncpy(param[j],callBacks[i].valueName[j],MAX_PAR_LEN);
 		}
 		if (!pss->spa) {
-			pss->spa = lws_spa_create(wsi, (const char * const *)param,
-					valueCount, 1024,
-					NULL, NULL); /* no file upload */
+			if(strcmp(pss->className,"Upload")==0 && strcmp(pss->subClassName,"UploadFile")==0){
+				pss->spa = lws_spa_create(wsi, (const char * const *)param,
+						valueCount, 1024,
+						file_upload_cb, pss);
+			}else{
+				pss->spa = lws_spa_create(wsi, (const char * const *)param,
+						valueCount, 1024,
+						NULL, NULL);
+			}
 			if (!pss->spa)
 				return -1;
 		}
@@ -265,6 +339,7 @@ int doCallback(struct lws *wsi,void *pss,const char* className,const char* subCl
     size_t i,j,valueCount=0;
     char **valueArray=(char **) malloc(MAX_PAR_COUNT * sizeof(char *));
     char buf[255];
+	struct pss *pss1=(struct pss *)pss;
     int ret=CALLBACK_NO_MATCH;
     lwsl_user("className:%s/subClassName:%s\n",className,subClassName);
     for (i = 0; i < sizeof(callBacks) / sizeof(callBacks[0]); i++) {
@@ -279,13 +354,26 @@ int doCallback(struct lws *wsi,void *pss,const char* className,const char* subCl
             for (j = 0; j < valueCount; j++) {
                 valueArray[j] = (char *) malloc(MAX_PAR_LEN * sizeof(char));
 				memset(valueArray[j],0,MAX_PAR_LEN);
+				if(strcmp(callBacks[i].valueName[j],"!UploadFilePath!")==0){
+					lwsl_user("filename:%s\n",pss1->filename);
+					if(strlen(pss1->filename)>0 && pss1->file_length>0){
+						sprintf(valueArray[j],"%s",pss1->filename);
+						continue;
+					}
+				}
+				if(strcmp(callBacks[i].valueName[j],"!UploadFileLength!")==0){
+					lwsl_user("length:%lld\n",pss1->file_length);
+					if(strlen(pss1->filename)>0 && pss1->file_length>0){
+						sprintf(valueArray[j],"%lld",pss1->file_length);
+						continue;
+					}
+				}
 				if(paramType==GET_PARAM){
 					int rv=lws_get_urlarg_by_name_safe(wsi, callBacks[i].valueName[j],
                                         (char *)buf, sizeof(buf));
 					if(rv<0)
 						continue;
 				}else{
-					struct pss *pss1=(struct pss *)pss;
 					if(!lws_spa_get_string(pss1->spa, j))
 						continue;
 					sprintf(buf,"%s",lws_spa_get_string(pss1->spa, j));
@@ -324,5 +412,13 @@ int gen_code_500(char** argv,int argc,char** resp,int* resp_code){
     sprintf(buf,"500 Interval Error from rkkvmd");
     *resp=buf;
 	*resp_code=500;
+    return 0;
+}
+int uploadFileSuccess(char** argv,int argc,char** resp,int* resp_code){
+	char *buf;
+    buf=(char *)malloc(100 * sizeof(char));
+    sprintf(buf,"Upload File Success!Filename:%s,Filelength:%s",argv[0],argv[1]);
+    *resp=buf;
+	*resp_code=200;
     return 0;
 }

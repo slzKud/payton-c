@@ -17,7 +17,9 @@
 #include <libwebsockets.h>
 #include <string.h>
 #include <signal.h>
-
+#include <fcntl.h>
+#include <stdlib.h>
+#include <errno.h>
 #define LWS_PLUGIN_STATIC
 #include "protocol_lws_minimal.c"
 //#include "protocol_http_api_bak.c"
